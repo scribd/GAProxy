@@ -1,6 +1,6 @@
 ## GAProxy
 
-GAProxy is a simple way to use Google Analytics in flash. It supports GA's new event tracking system, which is a great way to do analytics in flash. GAproxy dynamically loads Google's GA.js into the parent page and calls it directly. This allows GAProxy to have a small file size (it adds around 5k to your swf), while retaining all the features of Google Analytics.
+GAProxy is a simple wrapper for Google Analytics in actionscript. It dynamically loads Google's GA.js into the parent page and makes calls directly to the javascript. As a result, it supports every feature of GA with the least amount of code. Including GAProxy will add around 5k to your swf size. 
 
 ## Features
 
