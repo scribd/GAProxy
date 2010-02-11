@@ -14,8 +14,8 @@ package
 	dynamic public class GAProxy extends Proxy implements IEventDispatcher
 	{
 		
-		private static const gaPath:String = "http://www.google-analytics.com/ga.js"; 
-		private static const gaPathSSL:String ="https://ssl.google-analytics.com/ga.js" ;
+		private static const path:String = "http://www.google-analytics.com/ga.js"; 
+		private static const pathSSL:String ="https://ssl.google-analytics.com/ga.js" ;
 		
 		private static var globalEventTarget:EventDispatcher = new EventDispatcher;
 		
@@ -29,29 +29,43 @@ package
 		private var localEventTarget:EventDispatcher;
 		
 		private var account:String;
+		
 		private var useSSL:Boolean = false;
 		
+		//this is the javascript object which stores the analytics functions
+		private static const scope:String = randomString(10);
+		
+		private static const alphabet:String = "abcdefghijklmnopqrstuvwxyz"
+		
+		private static function randomString(length:int):String{
+			var rnd:String = "";
+			
+			for (var i:int = 0; i < length; i++){
+				rnd += alphabet.charAt(int(Math.floor(Math.random() * 26)));
+			}
+			return rnd;
+		}
 		
 		private static const injectScript:String = (<![CDATA[
 			(function() {
-				window._GAProxy_loaded = false;
-				
-				window._GAProxy_trackers={};
-			
-				window._GAProxy_terminal_events={};
+				//create an object which stores GAProxy's state
+				window.${scope} = {}
+				${scope}.loaded = false;
+				${scope}.trackers={};
+				${scope}.terminalEvents={};
 			
 				//GA is initialized in this function
-				window._GAProxy_initialized = function()
+				${scope}.onInitialized = function()
 				{
 					var objId = "${objectId}"; 
 					var el = document.getElementsByName(objId)[0];
-					el._GAProxy_analyticsReady();
+					el.GAProxy_analyticsReady${scope}();
 				};
 							
 				if (window['_gat'])
 				{
-					window._GAProxy_loaded = true;
-					window._GAProxy_initialized();
+					${scope}.loaded = true;
+					${scope}.onInitialized();
 				}
 				else
 				{
@@ -64,74 +78,64 @@ package
 					{
 						if (gaLoad.readyState == 'loaded' || gaLoad.readyState == 'complete') 
 						{ 
-							if(!window._GAProxy_loaded)
+							if(!${scope}.loaded)
 							{
-								window._GAProxy_initialized();
+								${scope}.onInitialized();
 							}
 							
-							window._GAProxy_loaded = true;
+							${scope}.loaded = true;
 						}
 					};
 							
 					gaLoad.onload = function () 
 					{
-						if(!window._GAProxy_loaded)
+						if(!${scope}.loaded)
 						{			
-							window._GAProxy_initialized();
+							${scope}.onInitialized();
 						}
-						window._GAProxy_loaded = true;
+						${scope}.loaded = true;
 					};
 				}
 			
-				window._GAProxy_onUnload = function()
+				onUnload${scope} = function()
 				{
 					var objId = "${objectId}"; 
 					var el = document.getElementsByName(objId)[0];
-					for (var eventKey in window._GAProxy_terminal_events)
+					for (var eventKey in ${scope}.terminalEvents)
 					{
-						var event = window._GAProxy_terminal_events[eventKey];
-						var tracker = window._GAProxy_trackers[event[0]];
+						var event = ${scope}.terminalEvents[eventKey];
+						var tracker = ${scope}.trackers[event[0]];
 						tracker._trackEvent.apply(this, event.slice(1));
 					}
 				}
 			
 				if (window.addEventListener)
 				{
-					window.addEventListener("unload", _GAProxy_onUnload, true);
+					window.addEventListener("unload", ${scope}onUnload, true);
 				} 
 				else if (window.attachEvent) 
 				{
-					window.detachEvent("onunload", _GAProxy_onUnload);
-					window.attachEvent("onunload", _GAProxy_onUnload);
+					window.detachEvent("onunload", onUnload${scope});
+					window.attachEvent("onunload", onUnload${scope});
 				}
 				
-				window._GAProxy_add_tracker = function(account)
+				${scope}.addTracker = function(account)
 				{
 					var tracker = _gat._getTracker(account);
-					window._GAProxy_trackers[account] = tracker;
+					${scope}.trackers[account] = tracker;
 					return true;
 				}
 			
-				window._GAProxy_sanity_check = function(account, method)
+				${scope}.invokeTracker = function(account, method, args)
 				{
-					if (!(account in window._GAProxy_trackers && method in window._GAProxy_trackers[account])  )
-					{
-						return false;
-					}
-			
-					return true;
-				}
-			
-				window._GAProxy_invoke_tracker = function(account, method, args)
-				{
-					var tracker = window._GAProxy_trackers[account];
+					var tracker = ${scope}.trackers[account];
 					return tracker[method].apply(this, args);
 				}
 			
-				window._GAProxy_add_terminal_event = function(account, category, action, label, value)
+				${scope}.addTerminalEvent = function(account, category, action, label, value)
 				{
 					var key = [account, category, action, label].join('_');
-					window._GAProxy_terminal_events[ key ] = [account, category, action, label, value];
+					${scope}.terminalEvents[ key ] = [account, category, action, label, value];
 				}
 			})();
 		]]>).toString();
@@ -143,19 +147,14 @@ package
 			globalEventTarget.dispatchEvent(new Event(Event.INIT));
 		}
 		
-		private function onUnload():void
-		{
-			globalEventTarget.dispatchEvent(new Event(Event.UNLOAD));
-		}
-		
 		private function get GAPath():String
 		{
-			return this.useSSL ? gaPathSSL : gaPath;
+			return this.useSSL ? pathSSL : path;
 		}
 		
 		private function onGAInit(event:Event=null):void
 		{
-			var res:Boolean = ExternalInterface.call( "window._GAProxy_add_tracker", this.account);
+			var res:Boolean = ExternalInterface.call( scope+".addTracker", this.account);
 			if (!res)
 			{
 				trace("Failed to add tracker", this.account);
@@ -177,7 +176,6 @@ package
 		{
 			if (injectStatus == 0)
 			{
-				
 				var objectId:String = "";
 				if (ExternalInterface.available && ExternalInterface.objectID)
 				{
@@ -190,31 +188,29 @@ package
 				}
 				
 				injectStatus = 1;
-				ExternalInterface.addCallback( "_GAProxy_analyticsReady", onAnalyticsReady);
-				ExternalInterface.addCallback( "_GAProxy_onUnload", onUnload);
+
 				var script:String = GAProxy.injectScript;
 
+				script = script.replace(/\${scope}/gm, scope);
 				script = script.replace(/\${objectId}/gm, objectId);
-				script = script.replace(/\${gaPath}/gm, this.GAPath);
+				script = script.replace(/\${gaPath}/gm, GAPath);
 				
 				ExternalInterface.call("eval", script);
-
+				
+				ExternalInterface.addCallback( "GAProxy_analyticsReady"+scope, onAnalyticsReady);
 			}
 			
 			if (injectStatus == 1)
 			{
 				globalEventTarget.addEventListener(Event.INIT, onGAInit);
 			}
-			
 		}
 		
 		public function GAProxy(account:String, useSSL:Boolean = false)
 		{
 			super();
-			
 			this.account = account;
 			this.useSSL = useSSL;
-			
 			
 			var protocol:String;
 			
@@ -250,12 +246,12 @@ package
 		
 		public function addTerminalEvent(category:String, action:String, label:String, value:Object):void
 		{
-			ExternalInterface.call("window._GAProxy_add_terminal_event", account,category, action, label, value);
+			ExternalInterface.call(scope+".addTerminalEvent", account,category, action, label, value);
 		}
 		
 		override flash_proxy function callProperty(methodName:*, ... args:Array):*
 		{
-			return ExternalInterface.call("window._GAProxy_invoke_tracker", account, methodName.localName, args);
+			return ExternalInterface.call(scope+".invokeTracker", account, methodName.localName, args);
 		}
 		
 		public function addEventListener(type:String, listener:Function, useCapture:Boolean = false, priority:int = 0, useWeakReference:Boolean = false):void 
